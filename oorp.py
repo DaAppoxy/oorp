@@ -130,6 +130,10 @@ class Decl:
     def match(self, obj) -> bool:
         return self.tspec.match(obj)
 
+class Syntax:
+    def __init__(self, )
+
+# Some error management bullshit
 class FileDescr(ABC):
     def io_read(self):
         pass
@@ -137,10 +141,38 @@ class FileDescr(ABC):
     #     pass
     def path(self) -> str:
         pass
-
 class FileDescrGetter(ABC):
     def get(self) -> FileDescr:
         pass
+class PythonIO_FDG_Wrapper(FileDescrGetter):
+    class WrappedFD(FileDescr):
+        def __init__(self, f):
+            self.f = f
+        def io_read(self):
+            return self.f
+        def path(self):
+            return self.f.name
+    def __init__(self, target):
+        self.target = target
+    def get(self) -> FileDescr:
+        return WrappedFD(self.target)
+class IOStringWrapper:
+    def __init__(self, content: str):
+        self._c = content
+    def read(self) -> str:
+        return self._c
+class Inline_FDG(FileDescrGetter):
+    class WrappedFD(FileDescr):
+        def __init__(self, content: str):
+            self.io = IOStringWrapper(content)
+        def io_read(self):
+            raise self.io
+        def path(self):
+            return "<inline-code>"
+    def __init__(self, content):
+        self.content = content
+    def get(self) -> FileDescr:
+        return WrappedFD(self.content)
 
 class Litteral:
     def __init__(self, content: str, lineno: int, fdg: FileDescrGetter):
@@ -174,11 +206,19 @@ class Parser:
         if "Litteral" not in self.module.__dict__().keys():
             self.module.Litteral = Litteral
         self.syntax_tree = []
-    def loads(self, oorp: str):
-        pass
+    def loads(self, oorp: str, origin: FileDescrGetter = None):
+        if origin is None:
+            origin = Inline_FDG(oorp)
+        for line in split_text(oorp, ';'):
+            cmds = split(line)
+            # temporary conversion from str -> Litteral without real data
+            cmds = [Litteral(cmd, 0, origin) for cmd in cmds]
+            chain = []
+
     def loadf(self, io_or_path):
         if isinstance(io_or_path, str):
             with open(io_or_path, 'r') as f:
                 return self.loadf(f)
         else:
-            return self.loads(io_or_path.read())
+            return self.loads(io_or_path.read(), )
+    
