@@ -100,26 +100,25 @@ def attr_match(obj, obj_pattern, attr_name):
         return True
     return eval(
         re.sub("(?<!\w)\.", "_self.", obj_pattern[attr_name]),
-        {"_self": getattr(obj, attr_name)}
+        {"_self": obj}
     )
 
 class TypeSpecifier:
-    def __init__(self, T: type, condition: dict = None):
-        if condition is None:
-            condition = {}
+    def __init__(self, T: type, conditions: dict = None):
+        if conditions is None:
+            conditions = {}
         self.target = T.__name__
         self.content = {
             name: MATCH_ANY
         for name, value in inspect.getmembers(T, lambda a:not(inspect.isroutine(a)))
             if not name.startswith("__")
         }
-        for i in condition:
-            self.content[i] = condition[i]
+        self.conditions = conditions
     def match(self, obj):
         if type(obj).__name__ != self.target:
             return False
-        for attr in self.content:
-            if not attr_match(obj, self.content, attr):
+        for cd in self.conditions:
+            if not attr_match(obj, self.content, cond):
                 return False
         return True
 
@@ -129,9 +128,6 @@ class Decl:
         self.name = name
     def match(self, obj) -> bool:
         return self.tspec.match(obj)
-
-class Syntax:
-    def __init__(self, )
 
 # Some error management bullshit
 class FileDescr(ABC):
@@ -200,25 +196,57 @@ class Litteral:
             ) 
         return ret
 
+_InteralLit = Litteral
+_InteralLit.__name__ = "_InternalLit"
+
 class Parser:
     def __init__(self, module = object()):
         self.module = module
         if "Litteral" not in self.module.__dict__().keys():
             self.module.Litteral = Litteral
         self.syntax_tree = []
+    def parse_syntax_atom(self, element: _InteralLit):
+        assert isinstance(element, Litteral)
+        if element.startswith("'") and element.endswith("'"):
+            return TypeSpecifier(Litteral, {"content": f".content == {eval(element)}"})
+        elif element.startswith("[") and element.endswith("]"):
+            cmds = split(element[1:-1])
+            T = eval(cmds[0], dict(self.module))
+            assert isinstance(T, type)    
+            if len(cmds) == 1:
+                return TypeSpecifier(T)
+            elif len(cmds) == 2:
+                if cmds[1].startswith("{") and cmds[1].endswith("}"):
+                    conds = split_text(cmds[1][1:-1], ',')
+                    return TypeSpecifier(T, conds)
+                else:
+                    return Decl(TypeSpecifier(T), cmds[1])
+            else:
+                assert len(cmds) == 3
+                assert cmds[1].startswith("{") and cmds[1].endswith("}")
+                conds = split_text(cmds[1][1:-1], ',')
+                return Decl(TypeSpecifier(T, conds), cmds[2])
+        # TODO: func_decl
+        raise SyntaxError("Unknown syntax")
+    def parse_block(self, element: str):
+        if element.startswith('{') and element.endswith('}'):
+            def wrapper():
     def loads(self, oorp: str, origin: FileDescrGetter = None):
         if origin is None:
             origin = Inline_FDG(oorp)
         for line in split_text(oorp, ';'):
             cmds = split(line)
             # temporary conversion from str -> Litteral without real data
-            cmds = [Litteral(cmd, 0, origin) for cmd in cmds]
+            cmds = [_InteralLit(cmd, 0, origin) for cmd in cmds]
             chain = []
-
+            while cmds[len(chain)].content != ':=':
+                chain.append(self.parse_syntax_atom(cmds[len(chain)]))
+            block = self.parse_block(cmds[len(chain)+1])
+            self.syntax_tree.append((chain, block))
     def loadf(self, io_or_path):
         if isinstance(io_or_path, str):
             with open(io_or_path, 'r') as f:
                 return self.loadf(f)
         else:
-            return self.loads(io_or_path.read(), )
+            return self.loads(io_or_path.read(), PythonIO_FDG_Wrapper(io_or_path))
     
